@@ -141,10 +141,9 @@ namespace CqlSharp.Linq
 
             var enm = (IEnumerable<object>)Activator.CreateInstance(
                 typeof(ProjectionReader<>).MakeGenericType(result.Projector.ReturnType),
-                BindingFlags.Instance | BindingFlags.NonPublic, null,
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null,
                 new object[] { this, result.Cql, projector },
-                null
-                                                );
+                null);
 
             if (result.ResultFunction != null)
                 return result.ResultFunction.Invoke(enm);
