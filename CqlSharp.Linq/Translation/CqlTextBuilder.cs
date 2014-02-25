@@ -59,9 +59,9 @@ namespace CqlSharp.Linq.Translation
             var builder = new StringBuilder();
             builder.Append("SELECT ");
             builder.Append(_translations[selectStatement.SelectClause]);
-            builder.Append(" FROM ");
-            builder.Append(selectStatement.TableName);
-            builder.Append("");
+            builder.Append(" FROM \"");
+            builder.Append(selectStatement.TableName.Replace("\"", "\"\""));
+            builder.Append("\"");
 
             if (selectStatement.WhereClause != null && selectStatement.WhereClause.Any())
             {
@@ -132,7 +132,7 @@ namespace CqlSharp.Linq.Translation
             switch ((CqlExpressionType)selector.NodeType)
             {
                 case CqlExpressionType.IdentifierSelector:
-                    value = selector.Identifier;
+                    value = "\"" + selector.Identifier.Replace("\"", "\"\"") + "\"";
                     break;
                 case CqlExpressionType.FunctionSelector:
                     var builder = new StringBuilder();
