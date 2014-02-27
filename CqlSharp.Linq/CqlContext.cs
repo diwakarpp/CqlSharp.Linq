@@ -86,6 +86,11 @@ namespace CqlSharp.Linq
         public bool SkipExecute { get; set; }
 #endif
 
+        /// <summary>
+        /// Maintains upsert and delete objects queue in dictionary until saved or till the CqlContext object disposes
+        /// </summary>
+        /// <remarks>This property can be eliminated upon implementing LINQ or Entity provider to support CUD</remarks>
+        public HybridDictionary TrackedTables {get; set;}
 
         #region IDisposable Members
 
