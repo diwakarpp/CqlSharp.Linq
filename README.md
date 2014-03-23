@@ -1,4 +1,4 @@
-This code is the forked edition of https://github.com/reuzel/CqlSharp.Linq and is used in http://thulya.com for Cassandra databse queries.
+This code is the forked edition of https://github.com/reuzel/CqlSharp.Linq and is used in http://thulya.com for Cassandra database queries.
 
 CqlSharp.Linq
 =============

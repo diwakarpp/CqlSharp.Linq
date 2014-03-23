@@ -13,7 +13,7 @@ namespace LinqCudTestsConsole
     {
         static void Main(string[] args)
         {
-            CqlConnectionStringBuilder cqlConnectionStringBuilder = GetCqlConnectionStringBuilder("192.168.1.33", 9042, "cassandra", "password", "keyspace");
+            CqlConnectionStringBuilder cqlConnectionStringBuilder = GetCqlConnectionStringBuilder("192.168.1.33", 9042, "cassandra", "password", "dbkeyspace");
             string userId = string.Empty;
 
             do
@@ -36,7 +36,7 @@ namespace LinqCudTestsConsole
                     homeStats.UserId = userId;
                     homeStats.HomeProfViewsSinceLastUpdate = 1;
                     homeStats.HomeProfViewsTotal = 1;
-                    thulyaDb.TLY_UserHomeStatsTable.InsertOnSubmit(homeStats);
+                    thulyaDb.TLY_UserHomeStatsTable.Add(homeStats);
                 }
                 else
                 {
@@ -45,10 +45,9 @@ namespace LinqCudTestsConsole
                     //Update
                     homeStats.HomeProfViewsSinceLastUpdate = homeStats.HomeProfViewsSinceLastUpdate + 1;
                     homeStats.HomeProfViewsTotal = homeStats.HomeProfViewsTotal + 1;
-                    thulyaDb.TLY_UserHomeStatsTable.UpdateOnSubmit(homeStats);
 
                 }
-                thulyaDb.SubmitChanges();
+                thulyaDb.SaveChanges();
 
                 Console.WriteLine("Records after update/insert:");
                 DisplayRecords(cqlConnectionStringBuilder.ToString());
@@ -65,8 +64,8 @@ namespace LinqCudTestsConsole
                 //Delete
                 if (homeStatsToDelete != null)
                 {
-                    thulyaDb.TLY_UserHomeStatsTable.DeleteOnSubmit(homeStatsToDelete);
-                    thulyaDb.SubmitChanges();
+                    thulyaDb.TLY_UserHomeStatsTable.Delete(homeStatsToDelete);
+                    thulyaDb.SaveChanges();
 
                     Console.WriteLine("Records after deleting :" + userId);
                     DisplayRecords(cqlConnectionStringBuilder.ToString());

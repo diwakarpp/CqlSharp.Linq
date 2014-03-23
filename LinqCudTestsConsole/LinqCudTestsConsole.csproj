@@ -54,10 +54,6 @@
       <Project>{45f69fdc-eef6-43da-a457-95ee553c68a1}</Project>
       <Name>CqlSharp</Name>
     </ProjectReference>
-    <ProjectReference Include="..\CqlSharp.Linq.CudExtension\CqlSharp.Linq.CudExtension.csproj">
-      <Project>{f7daf43b-8fad-47bd-87e3-b9b2d6ebf3ee}</Project>
-      <Name>CqlSharp.Linq.CudExtension</Name>
-    </ProjectReference>
     <ProjectReference Include="..\CqlSharp.Linq\CqlSharp.Linq.csproj">
       <Project>{29cf6a0d-f5de-49c3-97e4-c2e574fe7797}</Project>
       <Name>CqlSharp.Linq</Name>

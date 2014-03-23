@@ -1,4 +1,4 @@
-﻿// CqlSharp.Linq - CqlSharp.Linq.Test
+// CqlSharp.Linq - CqlSharp.Linq.Test
 // Copyright (c) 2014 Joost Reuzel
 //   
 // Licensed under the Apache License, Version 2.0 (the "License");

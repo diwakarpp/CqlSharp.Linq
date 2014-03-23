@@ -13,12 +13,11 @@ namespace Thulyadb.Dynamic
     using System;
     using CqlSharp;
     using CqlSharp.Linq;
-
+    using CqlSharp.Serialization;
 
     public class TLY_UserHomeStats
     {
-
-        [System.Data.Linq.Mapping.ColumnAttribute(IsPrimaryKey = true)]
+        [CqlKey]
         public System.String UserId { get; set; }
 
         public System.Int64 HomeProfViewsSinceLastUpdate { get; set; }
@@ -31,9 +30,7 @@ namespace Thulyadb.Dynamic
 
     public partial class ThulyadbContext : CqlContext
     {
-
         public CqlTable<TLY_UserHomeStats> TLY_UserHomeStatsTable { get; set; }
-
 
         public ThulyadbContext(bool initializeTables = true) :
             base(initializeTables)

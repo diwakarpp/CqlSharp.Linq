@@ -13,23 +13,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using CqlSharp.Linq.Expressions;
-using CqlSharp.Linq.Translation;
+using CqlSharp.Linq.Mutations;
+using CqlSharp.Linq.Query;
 using System;
-using System.Collections.Specialized;
-using System.Diagnostics;
-using System.Linq;
-using System.Linq.Expressions;
+using System.Collections.Concurrent;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CqlSharp.Linq
 {
     /// <summary>
     ///   A representation of a Cql database (keyspace)
     /// </summary>
-    public abstract class CqlContext : IQueryProvider, IDisposable
+    public abstract class CqlContext : IDisposable
     {
-        private string _connectionString;
+        private readonly CqlDatabase _database;
+
+        /// <summary>
+        ///   The list of tables known to this context
+        /// </summary>
+        private readonly ConcurrentDictionary<Type, ICqlTable> _tables;
+
+        /// <summary>
+        ///   Gets the CQL query provider.
+        /// </summary>
+        /// <value> The CQL query provider. </value>
+        internal CqlQueryProvider QueryProvider { get; private set; }
+
 
         /// <summary>
         ///   Initializes a new instance of the <see cref="CqlContext" /> class.
@@ -40,6 +51,12 @@ namespace CqlSharp.Linq
 #if DEBUG
             SkipExecute = false;
 #endif
+            _database = new CqlDatabase(this);
+
+            _tables = new ConcurrentDictionary<Type, ICqlTable>();
+            ChangeTracker = new CqlChangeTracker(this);
+            QueryProvider = new CqlQueryProvider(this);
+
             if (initializeTables)
                 InitializeTables();
         }
@@ -52,31 +69,24 @@ namespace CqlSharp.Linq
         protected CqlContext(string connectionString, bool initializeTables = true)
             : this(initializeTables)
         {
-            _connectionString = connectionString;
+            _database.ConnectionString = connectionString;
         }
 
-        /// <summary>
-        ///   Gets the connection string.
-        /// </summary>
-        /// <value> The connection string. </value>
-        public string ConnectionString
+        protected CqlContext(CqlConnection connection, bool ownsConnection = true, bool initializeTables = true)
+            : this(initializeTables)
         {
-            get
-            {
-                if (_connectionString == null)
-                    _connectionString = GetType().Name;
-
-                return _connectionString;
-            }
-
-            set { _connectionString = value; }
+            _database.SetConnection(connection, ownsConnection);
         }
 
         /// <summary>
-        ///   Gets or sets the log where executed CQL queries are written to
+        ///   Gets the database underlying this context
         /// </summary>
-        /// <value> The log. </value>
-        public Action<string> Log { get; set; }
+        /// <value> The database. </value>
+        public CqlDatabase Database
+        {
+            get { return _database; }
+        }
+
 
 #if DEBUG
         /// <summary>
@@ -86,12 +96,6 @@ namespace CqlSharp.Linq
         public bool SkipExecute { get; set; }
 #endif
 
-        /// <summary>
-        /// Maintains upsert and delete objects queue in dictionary until saved or till the CqlContext object disposes
-        /// </summary>
-        /// <remarks>This property can be eliminated upon implementing LINQ or Entity provider to support CUD</remarks>
-        public HybridDictionary TrackedTables {get; set;}
-
         #region IDisposable Members
 
         /// <summary>
@@ -100,6 +104,7 @@ namespace CqlSharp.Linq
         /// <filterpriority>2</filterpriority>
         public void Dispose()
         {
+            _database.Dispose();
         }
 
         #endregion
@@ -115,175 +120,159 @@ namespace CqlSharp.Linq
                 var propertyType = property.PropertyType;
                 if (propertyType.IsGenericType && propertyType.GetGenericTypeDefinition() == typeof(CqlTable<>))
                 {
-                    var table = Activator.CreateInstance(propertyType, this);
+                    //create new table object
+                    var table =
+                        (ICqlTable)
+                        Activator.CreateInstance(propertyType, BindingFlags.NonPublic | BindingFlags.Instance, null,
+                                                 new object[] { this }, null);
+
+                    //add it to the list of known tables
+                    table = _tables.GetOrAdd(table.EntityType, table);
+
+                    //set the property
                     property.SetValue(this, table);
                 }
             }
         }
 
         /// <summary>
-        /// Gets the table represented by the provided type.
+        ///   Gets the table represented by the provided entityType.
         /// </summary>
-        /// <typeparam name="T">type that represents the values in the table</typeparam>
-        /// <returns>a CqlTable</returns>
-        public CqlTable<T> GetTable<T>()
+        /// <typeparam name="TEntity"> type that represents the values in the table </typeparam>
+        /// <returns> a CqlTable </returns>
+        public CqlTable<TEntity> GetTable<TEntity>() where TEntity : class, new()
         {
-            return new CqlTable<T>(this);
+            return (CqlTable<TEntity>)_tables.GetOrAdd(typeof(TEntity), new CqlTable<TEntity>(this));
         }
-
-        private object Execute(Expression expression)
-        {
-            var result = ParseExpression(expression);
-
-            //log the query
-            if (Log != null)
-                Log(result.Cql);
-
-#if DEBUG
-            //return default values of execution is to be skipped
-            if (SkipExecute)
-            {
-                //return empty array
-                if (result.ResultFunction == null)
-                    return Array.CreateInstance(result.Projector.ReturnType, 0);
-
-                //return default value or null
-                return result.Projector.ReturnType.DefaultValue();
-            }
-#endif
-
-            Delegate projector = result.Projector.Compile();
-
-            var enm = (IProjectionReader)Activator.CreateInstance(
-                typeof(ProjectionReader<>).MakeGenericType(result.Projector.ReturnType),
-                BindingFlags.Instance | BindingFlags.Public, null,
-                new object[] { this, result.Cql, projector },
-                null
-                                                );
-
-            if (result.ResultFunction != null)
-                return result.ResultFunction.Invoke(enm.AsObjectEnumerable());
-
-            return enm;
-        }
-
-        internal class ParseResult
-        {
-            public string Cql { get; set; }
-            public LambdaExpression Projector { get; set; }
-            public ResultFunction ResultFunction { get; set; }
-        }
-
-        internal ParseResult ParseExpression(Expression expression)
-        {
-            Debug.WriteLine("Original Expression: " + expression);
-
-            //evaluate all partial expressions (get rid of reference noise)
-            var cleanedExpression = PartialEvaluator.Evaluate(expression, CanBeEvaluatedLocally);
-            Debug.WriteLine("Cleaned Expression: " + cleanedExpression);
-
-            //translate the expression to a cql expression and corresponding projection
-            var translation = new ExpressionTranslator().Translate(cleanedExpression);
-
-            //generate cql text
-            var cql = new CqlTextBuilder().Build(translation.Select);
-            Debug.WriteLine("Generated CQL: " + cql);
-
-            //get a projection delegate
-            var projector = new ProjectorBuilder().BuildProjector(translation.Projection);
-            Debug.WriteLine("Generated Projector: " + projector);
-            Debug.WriteLine("Result processor: " +
-                            (translation.ResultFunction != null
-                                 ? translation.ResultFunction.GetMethodInfo().ToString()
-                                 : "<none>"));
-
-            //return translation results
-            return new ParseResult { Cql = cql, Projector = projector, ResultFunction = translation.ResultFunction };
-        }
-
-        private bool CanBeEvaluatedLocally(Expression expression)
-        {
-            var cex = expression as ConstantExpression;
-            if (cex != null)
-            {
-                var query = cex.Value as IQueryable;
-                if (query != null && query.Provider == this)
-                    return false;
-            }
-
-            var mex = expression as MethodCallExpression;
-            if (mex != null)
-            {
-                if (mex.Method.DeclaringType == typeof(CqlFunctions))
-                    return false;
-            }
-
-            return expression.NodeType != ExpressionType.Parameter &&
-                   expression.NodeType != ExpressionType.Lambda;
-        }
-
-        #region IQueryProvider implementation
 
         /// <summary>
-        ///   Creates the query.
+        ///   Tries the get table for the given entityType.
         /// </summary>
-        /// <typeparam name="TElement"> The type of the element. </typeparam>
-        /// <param name="expression"> The expression. </param>
+        /// <param name="entityType"> The entity type. </param>
+        /// <param name="table"> The table. </param>
         /// <returns> </returns>
-        IQueryable<TElement> IQueryProvider.CreateQuery<TElement>(Expression expression)
+        internal bool TryGetTable(Type entityType, out ICqlTable table)
         {
-            return new CqlTable<TElement>(this, expression);
+            return _tables.TryGetValue(entityType, out table);
         }
 
         /// <summary>
-        ///   Constructs an <see cref="T:System.Linq.IQueryable" /> object that can evaluate the query represented by a specified expression tree.
+        ///   Gets the mutation tracker.
         /// </summary>
-        /// <param name="expression"> An expression tree that represents a LINQ query. </param>
-        /// <returns> An <see cref="T:System.Linq.IQueryable" /> that can evaluate the query represented by the specified expression tree. </returns>
-        IQueryable IQueryProvider.CreateQuery(Expression expression)
+        /// <value> The mutation tracker. </value>
+        public CqlChangeTracker ChangeTracker { get; private set; }
+
+        #region SaveChanges
+
+        /// <summary>
+        /// Saves the changes.
+        /// </summary>
+        public void SaveChanges()
         {
-            Type elementType = TypeSystem.GetElementType(expression.Type);
-            try
-            {
-                return
-                    (IQueryable)
-                    Activator.CreateInstance(typeof(CqlTable<>).MakeGenericType(elementType),
-                                             new object[] { this, expression });
-            }
-            catch (TargetInvocationException tie)
-            {
-                throw tie.InnerException;
-            }
+            ChangeTracker.SaveChanges(CqlConsistency.One, true);
         }
 
         /// <summary>
-        ///   Executes the specified expression.
+        /// Saves the changes with the required consistency level.
         /// </summary>
-        /// <typeparam name="TResult"> The type of the result. </typeparam>
-        /// <param name="expression"> The expression. </param>
-        /// <returns> </returns>
-        TResult IQueryProvider.Execute<TResult>(Expression expression)
+        /// <param name="acceptChangesDuringSave">if set to <c>true</c> [accept changes during save].</param>
+        public void SaveChanges(bool acceptChangesDuringSave)
         {
-            object result = Execute(expression);
+            ChangeTracker.SaveChanges(CqlConsistency.One, acceptChangesDuringSave);
+        }
 
-            //convert known value types (long to int, etc) via their IConvertible interface
-            if (result is IConvertible)
-                return (TResult)Convert.ChangeType(result, typeof(TResult));
 
-            //cast otherwise
-            return (TResult)result;
+        /// <summary>
+        ///   Saves the changes with the required consistency level.
+        /// </summary>
+        /// <param name="consistency"> The consistency level. Defaults to one. </param>
+        public void SaveChanges(CqlConsistency consistency)
+        {
+            ChangeTracker.SaveChanges(consistency, true);
+        }
+
+
+        /// <summary>
+        /// Saves the changes with the required consistency level.
+        /// </summary>
+        /// <param name="consistency">The consistency level. Defaults to one.</param>
+        /// <param name="acceptChangesDuringSave">if set to <c>true</c> [accept changes during save].</param>
+        public void SaveChanges(CqlConsistency consistency, bool acceptChangesDuringSave)
+        {
+            ChangeTracker.SaveChanges(consistency, acceptChangesDuringSave);
+        }
+
+
+        /// <summary>
+        ///   Saves the changes
+        /// </summary>
+        public Task SaveChangesAsync()
+        {
+            return SaveChangesAsync(CqlConsistency.One, true, CancellationToken.None);
         }
 
         /// <summary>
-        ///   Executes the query represented by a specified expression tree.
+        ///   Saves the changes.
         /// </summary>
-        /// <param name="expression"> An expression tree that represents a LINQ query. </param>
-        /// <returns> The value that results from executing the specified query. </returns>
-        object IQueryProvider.Execute(Expression expression)
+        /// <param name="cancellationToken"> the cancellation token </param>
+        public Task SaveChangesAsync(CancellationToken cancellationToken)
         {
-            return Execute(expression);
+            return SaveChangesAsync(CqlConsistency.One, true, cancellationToken);
         }
+
+        /// <summary>
+        ///   Saves the changes with the required consistency level.
+        /// </summary>
+        /// <param name="consistency"> The consistency level. Defaults to one. </param>
+        public Task SaveChangesAsync(CqlConsistency consistency)
+        {
+            return SaveChangesAsync(consistency, true, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Saves the changes with the required consistency level.
+        /// </summary>
+        /// <param name="consistency">The consistency level. Defaults to one.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns></returns>
+        public Task SaveChangesAsync(CqlConsistency consistency, CancellationToken cancellationToken)
+        {
+            return SaveChangesAsync(consistency, true, cancellationToken);
+        }
+
+        /// <summary>
+        /// Saves the changes with the required consistency level.
+        /// </summary>
+        /// <param name="consistency">The consistency level</param>
+        /// <param name="acceptChangesDuringSave">if set to <c>true</c> [accept changes during save].</param>
+        /// <returns></returns>
+        public Task SaveChangesAsync(CqlConsistency consistency, bool acceptChangesDuringSave)
+        {
+            return SaveChangesAsync(consistency, acceptChangesDuringSave, CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Saves the changes with the required consistency level.
+        /// </summary>
+        /// <param name="consistency">The consistency level</param>
+        /// <param name="acceptChangesDuringSave">if set to <c>true</c> [accept changes during save].</param>
+        /// <param name="cancellationToken">the cancellation token</param>
+        /// <returns></returns>
+        public Task SaveChangesAsync(CqlConsistency consistency, bool acceptChangesDuringSave,
+                                     CancellationToken cancellationToken)
+        {
+            return ChangeTracker.SaveChangesAsync(consistency, acceptChangesDuringSave, cancellationToken);
+        }
+
 
         #endregion
+
+        /// <summary>
+        /// Accepts all changes made to tracked entities, and regards them as unchanged afterwards.
+        /// </summary>
+        public void AcceptAllChanges()
+        {
+            ChangeTracker.AcceptAllChanges();
+        }
     }
 }

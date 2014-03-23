@@ -13,39 +13,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System;
-using System.Collections.Generic;
-using CqlSharp.Serialization;
-
-namespace CqlSharp.Linq
+namespace CqlSharp.Linq.Mutations
 {
     /// <summary>
-    ///   Utility interface to access CqlTables in a non-generic way
+    ///   State of a tracked object
     /// </summary>
-    public interface ICqlTable
+    public enum EntityState
     {
         /// <summary>
-        ///   Gets the columns.
+        ///   Indicates that an entity has not changed any values
         /// </summary>
-        /// <value> The column info elements. </value>
-        IEnumerable<ICqlColumnInfo> Columns { get; }
+        Unchanged,
 
         /// <summary>
-        ///   Gets the name of the Table.
+        ///   Indicates that an entity has been added to a table
         /// </summary>
-        /// <value> The name. </value>
-        string Name { get; }
+        Added,
 
         /// <summary>
-        ///   Gets the type of entity contained by this table.
+        ///   Indicates that an entity has different values compared to the loaded database values
         /// </summary>
-        /// <value> The type. </value>
-        Type EntityType { get; }
+        Modified,
 
         /// <summary>
-        ///   Gets the context this table instance belongs to.
+        ///   Indicates that an entity has been deleted from a table
         /// </summary>
-        /// <value> The context. </value>
-        CqlContext Context { get; }
+        Deleted,
+
+        /// <summary>
+        ///   Indicates that an entity has no longer refers to a row in a database table
+        /// </summary>
+        Detached
     }
 }

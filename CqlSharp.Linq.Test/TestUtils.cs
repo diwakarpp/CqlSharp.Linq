@@ -23,8 +23,9 @@ namespace CqlSharp.Linq.Test
         internal static void ExecuteQuery(QueryFunc query, string expectedCql)
         {
             string executedCql = string.Empty;
-            using (var context = new MyContext { SkipExecute = true, Log = (cql) => { executedCql = cql; } })
+            using (var context = new MyContext { SkipExecute = true })
             {
+                context.Database.Log = (cql) => { executedCql = cql; };
                 var result = query(context);
                 Assert.AreEqual(expectedCql, executedCql.TrimEnd());
             }
@@ -44,13 +45,16 @@ namespace CqlSharp.Linq.Test
     {
         public MyContext()
         {
-
         }
 
         public MyContext(string connectionString)
             : base(connectionString)
         {
+        }
 
+        public MyContext(CqlConnection connection, bool ownsConnection)
+            : base(connection, ownsConnection)
+        {
         }
 
         public CqlTable<MyValue> Values { get; set; }
@@ -62,12 +66,14 @@ namespace CqlSharp.Linq.Test
     /// </summary>
     public class MyValue
     {
+        [CqlKey]
         public int Id { get; set; }
+
         public string Value { get; set; }
     }
 
     /// <summary>
-    /// Similar to MyValue, but now annotated with key and keyspace data
+    ///   Similar to MyValue, but now annotated with key and keyspace data
     /// </summary>
     [CqlTable("myvalue", Keyspace = "linqtest")]
     public class AnnotatedTable
