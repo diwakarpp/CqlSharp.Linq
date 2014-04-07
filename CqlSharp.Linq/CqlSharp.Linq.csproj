@@ -30,6 +30,10 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="CqlSharp, Version=0.35.1.0, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\packages\CqlSharp.0.35.1.0\lib\net45\CqlSharp.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Numerics" />
@@ -59,13 +63,14 @@
     <Compile Include="ICqlTable.cs" />
     <Compile Include="Mutations\CqlBuilder.cs" />
     <Compile Include="Mutations\CqlEntityComparer.cs" />
+    <Compile Include="Mutations\EntityHelper.cs" />
     <Compile Include="Mutations\EntityKey.cs" />
     <Compile Include="Mutations\IEntityKey.cs" />
     <Compile Include="Mutations\ITableChangeTracker.cs" />
-    <Compile Include="Mutations\ITrackedEntity.cs" />
+    <Compile Include="Mutations\IEntityEntry.cs" />
     <Compile Include="Mutations\ObjectReferenceEqualityComparer.cs" />
     <Compile Include="Mutations\TableChangeTracker.cs" />
-    <Compile Include="Mutations\TrackedEntity.cs" />
+    <Compile Include="Mutations\EntityEntry.cs" />
     <Compile Include="Mutations\EntityState.cs" />
     <Compile Include="Mutations\CqlChangeTracker.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -90,13 +95,9 @@
   <ItemGroup>
     <None Include="BuildPackage.cmd" />
     <None Include="CqlSharp.Linq.nuspec" />
+    <None Include="packages.config" />
   </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\CqlSharp\trunk\CqlSharp\CqlSharp.csproj">
-      <Project>{45f69fdc-eef6-43da-a457-95ee553c68a1}</Project>
-      <Name>CqlSharp</Name>
-    </ProjectReference>
-  </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>

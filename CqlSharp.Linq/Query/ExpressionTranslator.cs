@@ -13,11 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using CqlSharp.Linq.Expressions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-using CqlSharp.Linq.Expressions;
 
 namespace CqlSharp.Linq.Query
 {
@@ -28,7 +28,7 @@ namespace CqlSharp.Linq.Query
     {
         public ProjectionExpression Translate(Expression expression)
         {
-            return (ProjectionExpression) Visit(expression);
+            return (ProjectionExpression)Visit(expression);
         }
 
         protected override Expression VisitConstant(ConstantExpression constant)
@@ -49,7 +49,7 @@ namespace CqlSharp.Linq.Query
         /// <returns> </returns>
         private static Expression CreateTableProjection(ICqlTable table)
         {
-            var enumType = typeof (IEnumerable<>).MakeGenericType(table.EntityType);
+            var enumType = typeof(IEnumerable<>).MakeGenericType(table.EntityType);
 
             var selectors = new List<SelectorExpression>();
             var bindings = new List<MemberBinding>();
@@ -71,18 +71,18 @@ namespace CqlSharp.Linq.Query
 
             var projection = Expression.MemberInit(Expression.New(table.EntityType), bindings);
 
-            return new ProjectionExpression(selectStmt, projection, true, null);
+            return new ProjectionExpression(selectStmt, projection, null, true, null, null);
         }
 
         protected override Expression VisitMethodCall(MethodCallExpression call)
         {
-            if (call.Method.DeclaringType == typeof (CqlQueryable))
+            if (call.Method.DeclaringType == typeof(CqlQueryable))
             {
                 switch (call.Method.Name)
                 {
                     case "AllowFiltering":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             var select = new SelectStatementExpression(source.Select.Type,
                                                                        source.Select.SelectClause,
@@ -92,24 +92,66 @@ namespace CqlSharp.Linq.Query
                                                                        source.Select.Limit,
                                                                        true);
 
-                            return new ProjectionExpression(select, source.Projection, source.CanTrackChanges,
-                                                            source.Aggregator);
+                            return new ProjectionExpression(@select,
+                                                            source.Projection,
+                                                            source.Aggregator,
+                                                            source.CanTrackChanges,
+                                                            source.Consistency,
+                                                            source.PageSize);
+                        }
+
+                    case "AsNoTracking":
+                        {
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
+
+                            return new ProjectionExpression(source.Select,
+                                                            source.Projection,
+                                                            source.Aggregator,
+                                                            false,
+                                                            source.Consistency,
+                                                            source.PageSize);
+                        }
+
+                    case "WithPageSize":
+                        {
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
+                            var size = (int)((ConstantExpression)call.Arguments[1]).Value;
+
+                            return new ProjectionExpression(source.Select,
+                                                            source.Projection,
+                                                            source.Aggregator,
+                                                            source.CanTrackChanges,
+                                                            source.Consistency,
+                                                            size);
+                        }
+
+                    case "WithConsistency":
+                        {
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
+                            var consistency = (CqlConsistency)((ConstantExpression)call.Arguments[1]).Value;
+
+                            return new ProjectionExpression(source.Select,
+                                                            source.Projection,
+                                                            source.Aggregator,
+                                                            source.CanTrackChanges,
+                                                            consistency,
+                                                            source.PageSize);
                         }
                 }
             }
-            else if (call.Method.DeclaringType == typeof (Queryable))
+            else if (call.Method.DeclaringType == typeof(Queryable))
             {
                 switch (call.Method.Name)
                 {
                     case "Select":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
                             return new SelectBuilder().UpdateSelect(source, call.Arguments[1]);
                         }
 
                     case "Where":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             if (source.Select.Limit.HasValue)
                                 throw new CqlLinqException(
@@ -120,7 +162,7 @@ namespace CqlSharp.Linq.Query
 
                     case "Distinct":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             //make sure limit is not set yet (as otherwise the semantics of the query cannot be supported)
                             if (source.Select.Limit.HasValue)
@@ -139,15 +181,20 @@ namespace CqlSharp.Linq.Query
                                                                        source.Select.AllowFiltering);
 
                             //update projection
-                            return new ProjectionExpression(select, source.Projection, false, source.Aggregator);
+                            return new ProjectionExpression(@select,
+                                                            source.Projection,
+                                                            source.Aggregator,
+                                                            false,
+                                                            source.Consistency,
+                                                            source.PageSize);
                         }
 
                     case "Take":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             //get take
-                            var take = (int) ((ConstantExpression) call.Arguments[1]).Value;
+                            var take = (int)((ConstantExpression)call.Arguments[1]).Value;
 
                             //use minimum of takes...
                             take = source.Select.Limit.HasValue ? Math.Min(source.Select.Limit.Value, take) : take;
@@ -161,14 +208,18 @@ namespace CqlSharp.Linq.Query
                                                                        take,
                                                                        source.Select.AllowFiltering);
 
-                            return new ProjectionExpression(select, source.Projection, source.CanTrackChanges,
-                                                            source.Aggregator);
+                            return new ProjectionExpression(@select,
+                                                            source.Projection,
+                                                            source.Aggregator,
+                                                            source.CanTrackChanges,
+                                                            source.Consistency,
+                                                            source.PageSize);
                         }
 
                     case "First":
                     case "FirstOrDefault":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             //if first contains a predicate, include it in the where clause...
                             if (call.Arguments.Count > 1)
@@ -192,15 +243,20 @@ namespace CqlSharp.Linq.Query
                             //use Enumerable logic for processing result set
                             AggregateFunction processor = call.Method.Name.Equals("First")
                                                            ? Enumerable.First
-                                                           : (AggregateFunction) Enumerable.FirstOrDefault;
+                                                           : (AggregateFunction)Enumerable.FirstOrDefault;
 
-                            return new ProjectionExpression(select, source.Projection, source.CanTrackChanges, processor);
+                            return new ProjectionExpression(@select,
+                                                            source.Projection,
+                                                            processor,
+                                                            source.CanTrackChanges,
+                                                            source.Consistency,
+                                                            null);
                         }
 
                     case "Single":
                     case "SingleOrDefault":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             //if first contains a predicate, include it in the where clause...
                             if (call.Arguments.Count > 1)
@@ -227,15 +283,20 @@ namespace CqlSharp.Linq.Query
                             //use Enumerable logic for processing result set
                             AggregateFunction processor = call.Method.Name.Equals("Single")
                                                            ? Enumerable.Single
-                                                           : (AggregateFunction) Enumerable.SingleOrDefault;
+                                                           : (AggregateFunction)Enumerable.SingleOrDefault;
 
 
-                            return new ProjectionExpression(select, source.Projection, source.CanTrackChanges, processor);
+                            return new ProjectionExpression(@select,
+                                                             source.Projection,
+                                                             processor,
+                                                             source.CanTrackChanges,
+                                                             source.Consistency,
+                                                             null);
                         }
 
                     case "Any":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             //if first contains a predicate, include it in the where clause...
                             if (call.Arguments.Count > 1)
@@ -256,13 +317,13 @@ namespace CqlSharp.Linq.Query
                                                                        1,
                                                                        source.Select.AllowFiltering);
 
-                            return new ProjectionExpression(select, source.Projection, false, enm => enm.Any());
+                            return new ProjectionExpression(@select, source.Projection, enm => enm.Any(), false, source.Consistency, null);
                         }
 
                     case "Count":
                     case "LongCount":
                         {
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             //count and distinct do not go together in CQL
                             if (source.Select.SelectClause.Distinct)
@@ -279,7 +340,7 @@ namespace CqlSharp.Linq.Query
                             }
 
                             //remove the select clause and replace with count(*)
-                            var select = new SelectStatementExpression(typeof (long),
+                            var select = new SelectStatementExpression(typeof(long),
                                                                        new SelectClauseExpression(true),
                                                                        source.Select.TableName,
                                                                        source.Select.WhereClause,
@@ -287,8 +348,7 @@ namespace CqlSharp.Linq.Query
                                                                        source.Select.Limit,
                                                                        source.Select.AllowFiltering);
 
-                            return new ProjectionExpression(select, new SelectorExpression("count", typeof (long)),
-                                                            false, Enumerable.Single);
+                            return new ProjectionExpression(@select, new SelectorExpression("count", typeof(long)), Enumerable.Single, false, source.Consistency, null);
                         }
 
                     case "OrderBy":
@@ -300,7 +360,7 @@ namespace CqlSharp.Linq.Query
                                 throw new CqlLinqException(
                                     "Custom IComparer implementations are not supported in ordering expressions.");
 
-                            var source = (ProjectionExpression) Visit(call.Arguments[0]);
+                            var source = (ProjectionExpression)Visit(call.Arguments[0]);
 
                             if (source.Select.Limit.HasValue)
                                 throw new CqlLinqException(

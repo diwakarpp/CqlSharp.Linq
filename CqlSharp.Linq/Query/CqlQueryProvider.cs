@@ -57,6 +57,11 @@ namespace CqlSharp.Linq.Query
             Debug.WriteLine("Original Expression: " + expression);
             Debug.WriteLine("Cleaned Expression: " + cleanedExpression);
             Debug.WriteLine("Generated CQL: " + cql);
+            Debug.WriteLine("Will track changes: " + translation.CanTrackChanges);
+            if (translation.Consistency.HasValue)
+                Debug.WriteLine("With Consistency: " + translation.Consistency);
+            if (translation.PageSize.HasValue)
+                Debug.WriteLine("With PageSize: " + translation.PageSize);
             Debug.WriteLine("Generated Projector: " + projector);
             Debug.WriteLine("Result processor: " +
                             (translation.Aggregator != null
@@ -64,7 +69,7 @@ namespace CqlSharp.Linq.Query
                                  : "<none>"));
 
             //return translation results
-            return new QueryPlan(cql, projector.Compile(), translation.CanTrackChanges, translation.Aggregator);
+            return new QueryPlan(cql, projector.Compile(), translation.Aggregator, translation.CanTrackChanges, translation.Consistency, translation.PageSize);
         }
 
         private bool CanBeEvaluatedLocally(Expression expression)
@@ -80,7 +85,7 @@ namespace CqlSharp.Linq.Query
             var mex = expression as MethodCallExpression;
             if (mex != null)
             {
-                if (mex.Method.DeclaringType == typeof (CqlFunctions))
+                if (mex.Method.DeclaringType == typeof(CqlFunctions))
                     return false;
             }
 
@@ -113,8 +118,8 @@ namespace CqlSharp.Linq.Query
             {
                 return
                     (IQueryable)
-                    Activator.CreateInstance(typeof (CqlQuery<>).MakeGenericType(elementType),
-                                             new object[] {this, expression});
+                    Activator.CreateInstance(typeof(CqlQuery<>).MakeGenericType(elementType),
+                                             new object[] { this, expression });
             }
             catch (TargetInvocationException tie)
             {
@@ -134,10 +139,10 @@ namespace CqlSharp.Linq.Query
 
             //convert known value types (long to int, etc) via their IConvertible interface
             if (result is IConvertible)
-                return (TResult) Convert.ChangeType(result, typeof (TResult));
+                return (TResult)Convert.ChangeType(result, typeof(TResult));
 
             //cast otherwise
-            return (TResult) result;
+            return (TResult)result;
         }
 
         /// <summary>

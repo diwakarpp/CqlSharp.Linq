@@ -30,10 +30,10 @@ namespace CqlSharp.Linq
         private bool _disposeConnection;
         private bool _disposeTransaction;
 
-        public CqlDatabase(CqlContext cqlContext)
+        internal CqlDatabase(CqlContext cqlContext)
         {
             _cqlContext = cqlContext;
-            CommandTimeout = 20;
+            CommandTimeout = 10;
         }
 
         /// <summary>
